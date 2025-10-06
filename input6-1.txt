@@ -1,0 +1,7 @@
+push 500
+push 2
+mult
+push 2
+div
+println
+quit

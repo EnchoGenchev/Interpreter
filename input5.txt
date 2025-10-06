@@ -1,0 +1,10 @@
+push :true:
+push 7
+push 8
+push :false:
+pop
+mult
+toString
+println
+println
+quit

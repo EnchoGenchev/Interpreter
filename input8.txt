@@ -1,0 +1,22 @@
+push 10
+sign
+sign
+push :false:
+sign
+add
+push -0
+sign
+push -0
+toString
+println
+toString
+println
+toString
+println
+toString
+println
+toString
+println
+toString
+println
+quit
