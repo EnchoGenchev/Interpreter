@@ -186,20 +186,20 @@ let interpreter ((input : string), (output : string)) : unit =
     try read_lines (input_line in_file :: acc) 
     with End_of_file -> List.rev acc (*reverse cuz prepended*)
   in
-  let lines = read_lines [] in
+  let commands = read_lines [] in
 
   let rec process stack commands =
     match commands with
     | [] -> stack
     | cmd :: rest ->
       let stripped = String.trim cmd in  (*trim whitespace and newlines so it reads correctly*)
-      if stripped = "quit" then stack
+      if stripped = "quit" then stack (*return stack*)
       else
-        let s = interpret_command stack stripped out_file in
-        process s rest
+        let s = interpret_command stack stripped out_file in (*executes a command and returns new stack*)
+        process s rest (*recursively executes following commands on the stack*)
   in
-
-  ignore(process [] lines); (*don't need the stack anymore*)
+  (*this is the empty stack that we start with and then run the commands on it*)
+  ignore(process [] commands); (*ignore because don't need the stack to return*)
   close_in in_file;
   close_out out_file
 ;;
