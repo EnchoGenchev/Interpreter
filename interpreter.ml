@@ -204,4 +204,4 @@ let interpreter ((input : string), (output : string)) : unit =
   close_out out_file
 ;;
 
-interpreter ("input5.txt", "output5.txt");;
+interpreter ("input8.txt", "output8.txt");;
