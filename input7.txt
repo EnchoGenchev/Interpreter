@@ -1,13 +1,38 @@
-add
-push -8
-push 4
-push -2
-mult
-mult
+push "str1"
+push str1
+push str1
+push 1
+pop
 push 3
-rem
-toString
+pop
+let
+push 5
+end
+pop
+let
+push c
+push 17
+assign
+let
+push a
+push 3
+assign
+push a
+push c
+add
+end
+let
+push b
+push "ronaldo"
+assign
+end
+end
+push 30
+push 40
 println
-toString
+println
+println
+println
+println
 println
 quit

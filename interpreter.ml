@@ -7,6 +7,9 @@ type value =
   | Error
   | Unit
 
+(* ADDED FOR PART 2: Environment type for variable scopes *)
+type env = (string * value) list list (* each frame is a scope *)
+
 (*string representation for output/println*)
 let value_to_string = function
   | Int n -> string_of_int n
@@ -70,71 +73,91 @@ let pop stack =
   | [] -> [Error] (*if stack empty then there's nothing to pop*)
   | _::tl -> tl (*if not empty then just return tail of stack*)
 
-let add stack =
-  match stack with
-  (*if top two values are integers*)
-  | Int y :: Int x :: tl -> Int (x + y) :: tl 
-  (*top two values are not integers*)
-  | v1 :: v2 :: tl -> Error :: v1 :: v2 :: tl (*preserves stack but pushes error*)
-  (*only one element in stack*)
-  | [v] -> Error :: v :: [] (*pushes Error to the stack after the element*)
-  (*empty stack*)
-  | [] -> [Error] (*pushes error to the stack*)
+(* ADDED FOR PART 2: Utility functions for env *)
+let rec env_lookup name env =
+  match env with
+  | [] -> None
+  | frame :: rest ->
+    match List.assoc_opt name frame with
+    | Some v -> Some v
+    | None -> env_lookup name rest
 
-let sub stack = (*same as addition but with - symbol instead*)
+let env_add name value env =
+  match env with
+  | frame :: rest -> ((name, value)::frame) :: rest
+  | [] -> [[(name, value)]]
+
+let env_update name value env =
+  let rec aux = function
+    | [] -> []
+    | frame :: rest ->
+      if List.exists (fun (n,_) -> n = name) frame
+      then (List.map (fun (n, v) -> if n = name then (n, value) else (n, v)) frame)::rest
+      else frame :: aux rest
+  in
+  aux env
+
+(* ADDED FOR PART 2: resolve names to bound values *)
+let rec resolve value env =
+  match value with
+  | Name n -> (match env_lookup n env with Some v -> v | None -> Error)
+  | v -> v
+
+(* ORIGINAL add function, updated to resolve Names *)
+let add stack env = (* env added *)
   match stack with
-  (*top two values are integers*)
-  | Int y :: Int x :: tl -> Int (x - y) :: tl 
-  (*top two values are not integers*)
-  | v1 :: v2 :: tl -> Error :: v1 :: v2  :: tl
-  (*only one element in stack*)
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Int x, Int y -> Int (x + y) :: tl
+      | _ -> v2 :: v1 :: Error :: tl)
   | [v] -> v :: Error :: []
-  (*empty stack*)
   | [] -> [Error]
 
-let mult stack = (*same as add and sub but with * symbol*)
+let sub stack env =
   match stack with
-  (*top two values are integers*)
-  | Int y :: Int x :: tl -> Int (x * y) :: tl
-  (*top two values are not integers*)
-  | v1 :: v2 :: tl -> Error  :: v1 :: v2 :: tl
-  (*only one element in stack*)
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Int x, Int y -> Int (x - y) :: tl
+      | _ -> v2 :: v1 :: Error :: tl)
   | [v] -> v :: Error :: []
-  (*empty stack*)
   | [] -> [Error]
 
-let div stack = (*like add, sub, and mult but with extra condition*)
+let mult stack env =
   match stack with
-  (*division by 0*)
-  | Int 0 :: Int x :: tl -> Error :: Int x :: Int 0 :: tl 
-  (*top two values are integers*)
-  | Int y :: Int x :: tl -> Int (x / y) :: tl (*pushes x/y to the stack (rounds to nearest int)*)
-  (*top two values are not integers*)
-  | v1 :: v2 :: tl ->  Error :: v1 :: v2 :: tl
-  (*only one element in stack*)
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Int x, Int y -> Int (x * y) :: tl
+      | _ -> v2 :: v1 :: Error :: tl)
   | [v] -> v :: Error :: []
-  (*empty stack*)
   | [] -> [Error]
 
+let div stack env =
+  match stack with
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Int x, Int 0 -> Error :: Int 0 :: Int x :: tl
+      | Int x, Int y -> Int (x / y) :: tl
+      | _ -> v2 :: v1 :: Error :: tl)
+  | [v] -> v :: Error :: []
+  | [] -> [Error]
 
-let rem stack = (*like add, sub, and mult but using mod*)
+let rem stack env =
   match stack with 
-  (*0 mod anything is not valid because it's like division by 0*)
-  | Int 0 :: Int x :: tl -> Error :: Int 0 :: Int x ::  tl
-   (*top two values are integers*)
-  | Int y :: Int x :: tl -> Int (x mod y) :: tl
-  (*top two values are not integers*)
-  | v1 :: v2 :: tl -> Error ::  v1 :: v2 :: tl
-  (*only one element in stack*)
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Int x, Int 0 -> Error :: Int 0 :: Int x :: tl
+      | Int x, Int y -> Int (x mod y) :: tl
+      | _ -> v2 :: v1 :: Error :: tl)
   | [v] -> v :: Error :: []
-  (*empty stack*)
   | [] -> [Error]
 
-let sign stack =
+let sign stack env =
   match stack with
-  | Int x :: tl -> Int (if x = 0 then 0 else -x) :: tl (*0 doesn't have a sign otherwise push -x*)
-  | value :: tl -> Error :: value :: tl (*if not an integer*)
-  | [] -> [Error] (*if stack empty*)
+  | v :: tl ->
+    (match resolve v env with
+      | Int x -> Int (if x = 0 then 0 else -x) :: tl
+      | _ -> v :: Error :: tl)
+  | [] -> [Error]
 
 let swap stack =
   match stack with
@@ -151,30 +174,141 @@ let to_string_stack stack =
 let println stack out_file =
   match stack with
   | value :: tl -> output_string out_file (value_to_string value ^ "\n");
-             tl (*return the rest of the stack*)
+                tl (*return the rest of the stack*)
   | [] -> (*stack empty so nothing to print*)
     [Error]
 
+(* ADDED FOR PART 2: cat, and, or, not, equal, lessThan *)
+let cat stack env =
+  match stack with
+  | Str y :: Str x :: tl -> Str (x ^ y) :: tl
+  | v1 :: v2 :: tl -> v2 :: v1 :: Error :: tl
+  | [v] -> v :: Error :: []
+  | [] -> [Error]
+
+let and_op stack env =
+  match stack with
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Bool x, Bool y -> Bool (x && y) :: tl
+      | _ -> Error :: v2 :: v1 :: tl)
+  | [v] -> Error :: v :: []
+  | [] -> [Error]
+
+let or_op stack env =
+  match stack with
+  | v2 :: v1 :: tl ->
+    (match resolve v1 env, resolve v2 env with
+      | Bool x, Bool y -> Bool (x || y) :: tl
+      | _ -> Error :: v2 :: v1 :: tl)
+  | [v] -> Error ::  v :: []
+  | [] -> [Error]
+
+let not_op stack env =
+  match stack with
+  | v :: tl ->
+    (match resolve v env with
+      | Bool x -> Bool (not x) :: tl
+      | _ -> Error :: v :: tl)
+  | [] -> [Error]
+
+let equal_op stack env =
+  match stack with
+  | v2 :: v1 :: tl ->
+      (match resolve v1 env, resolve v2 env with
+       | Int x, Int y -> Bool (x = y) :: tl
+       | _ -> Error ::  v2 :: v1 :: tl)
+  | [v] -> Error ::  v :: []
+  | [] -> [Error]
+
+let less_than_op stack env =
+  match stack with
+  | v2 :: v1 :: tl ->
+      (match resolve v1 env, resolve v2 env with
+       | Int x, Int y -> Bool (x < y) :: tl
+       | _ -> Error :: v2 :: v1 :: tl)
+  | [v] -> Error ::  v :: []
+  | [] -> [Error]
+
+let assign stack env =
+  match stack with
+  | v :: Name n :: tl ->
+      let res_v = match v with
+        | Name name ->
+          (match env_lookup name env with
+            | Some value ->
+              if value = Error then None else Some value
+            | None -> None)
+        | Error -> None
+        | _ -> Some v
+      in
+      (match res_v with
+       | Some value -> Unit :: tl, env_add n value env
+       | None -> Error ::  Name n :: v :: tl, env
+      )
+  | v :: n :: tl -> n :: v :: Error :: tl, env
+  | [v] -> Error :: v :: [], env
+  | [] -> [Error], env
+
+let if_op stack env =
+  match stack with
+  | x :: y :: z :: tl -> 
+      (match resolve x env, resolve y env, resolve z env with
+      | vx, vy, Bool cond ->
+         if cond then vx :: tl, env else vy :: tl, env
+      | _, _, _ -> Error :: x :: y :: z :: tl, env)
+  | [a; b] -> Error :: a :: b :: [], env
+  | [a] -> Error :: a :: [], env
+  | [] -> [Error], env
+
+let rec concat_stack s1 s2 =
+  match s1 with
+  | [] -> s2
+  | hd :: tl -> hd :: (concat_stack tl s2)
+
 (*interpret a single command, returns new stack *)
-let interpret_command (stack : value list) (cmd : string) (out_file : out_channel) : value list =
-  if String.length cmd = 0 then stack (*return the stack once there are no more commands*)
+(* ADDED FOR PART 2: environment is threaded through *)
+let interpret_command (stack : value list) (env : env) (cmd : string) (out_file : out_channel) : value list * env =
+  if String.length cmd = 0 then (stack, env) (*return the stack once there are no more commands*)
   else
-    let words = String.split_on_char ' ' cmd in (*splits words and puts in string list*)
+    let words = String.split_on_char ' ' cmd in (*split command string into words*)
     match words with
-    | ["push"; arg] -> push stack arg 
-    | ["pop"] -> pop stack
-    | ["add"] -> add stack
-    | ["sub"] -> sub stack
-    | ["mult"] -> mult stack
-    | ["div"] -> div stack
-    | ["rem"] -> rem stack
-    | ["sign"] -> sign stack
-    | ["swap"] -> swap stack
-    | ["toString"] -> to_string_stack stack
-    | ["println"] -> println stack out_file
-    | "push" :: rest -> let arg = String.concat " " rest in push stack arg (*for strings with spaces*)
-    | _ -> stack
-    
+    (* Basic stack manipulations *)
+    | ["push"; arg] -> (push stack arg, env)
+    | "push" :: rest -> 
+        let arg = String.concat " " rest in (*handle strings with spaces*)
+        (push stack arg, env)
+    | ["pop"] -> (pop stack, env)
+    | ["add"] -> (add stack env, env)
+    | ["sub"] -> (sub stack env, env)
+    | ["mult"] -> (mult stack env, env)
+    | ["div"] -> (div stack env, env)
+    | ["rem"] -> (rem stack env, env)
+    | ["sign"] -> (sign stack env, env)
+    | ["swap"] -> (swap stack, env)
+    | ["toString"] -> (to_string_stack stack, env)
+    | ["println"] -> (println stack out_file, env)
+    (* Boolean and comparison operations *)
+    | ["cat"] -> (cat stack env, env)
+    | ["and"] -> (and_op stack env, env)
+    | ["or"] -> (or_op stack env, env)
+    | ["not"] -> (not_op stack env, env)
+    | ["equal"] -> (equal_op stack env, env)
+    | ["lessThan"] -> (less_than_op stack env, env)
+    (* Assignment and control flow *)
+    | ["assign"] -> assign stack env
+    | ["if"] -> if_op stack env
+    (* Environment handling *)
+    | ["let"] -> (stack, [] :: env)
+    | ["end"] ->
+        (match env with
+        | [] -> Error :: stack, env
+        | frame :: rest_env -> 
+            (match stack with
+            | v :: tl -> [v], rest_env
+            | [] -> [], rest_env))
+    | _ -> (stack, env)
+
 
 (*main function *)
 let interpreter ((input : string), (output : string)) : unit =
@@ -188,20 +322,21 @@ let interpreter ((input : string), (output : string)) : unit =
   in
   let commands = read_lines [] in
 
-  let rec process stack commands =
+  (* ADDED FOR PART 2: env threaded in process *)
+  let rec process stack env commands =
     match commands with
     | [] -> stack
     | cmd :: rest ->
       let stripped = String.trim cmd in  (*trim whitespace and newlines so it reads correctly*)
       if stripped = "quit" then stack (*return stack*)
       else
-        let s = interpret_command stack stripped out_file in (*executes a command and returns new stack*)
-        process s rest (*recursively executes following commands on the stack*)
+        let s, e = interpret_command stack env stripped out_file in
+        process s e rest
   in
   (*this is the empty stack that we start with and then run the commands on it*)
-  ignore(process [] commands); (*ignore because don't need the stack to return*)
+  ignore(process [] [[]] commands); (* PART 2: initial global environment *)
   close_in in_file;
   close_out out_file
 ;;
 
-interpreter ("input8.txt", "output8.txt");;
+interpreter ("input0.txt", "output0.txt");

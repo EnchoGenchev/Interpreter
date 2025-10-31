@@ -1,13 +1,11 @@
-push 5
 push :true:
-push :false:
-push "str1"
-push str1
-push :error:
-push :unit:
-println
-println
-println
+push :true:
+push 3
+and
+push 5
+push 10
+add
+push :true:
 toString
 println
 toString
@@ -15,5 +13,7 @@ println
 toString
 println
 toString
+println
+println
 println
 quit
