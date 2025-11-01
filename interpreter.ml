@@ -267,47 +267,52 @@ let rec concat_stack s1 s2 =
   | hd :: tl -> hd :: (concat_stack tl s2)
 
 (*interpret a single command, returns new stack *)
-(* ADDED FOR PART 2: environment is threaded through *)
-let interpret_command (stack : value list) (env : env) (cmd : string) (out_file : out_channel) : value list * env =
-  if String.length cmd = 0 then (stack, env) (*return the stack once there are no more commands*)
+(* ADDED FOR PART 2: environment is threaded through, stack-of-stacks for let/end *)
+let interpret_command (stack : value list) (stack_env : value list list) (env : env) (cmd : string) (out_file : out_channel) 
+    : value list * value list list * env =
+  if String.length cmd = 0 then (stack, stack_env, env) (*return the stack once there are no more commands*)
   else
     let words = String.split_on_char ' ' cmd in (*split command string into words*)
     match words with
     (* Basic stack manipulations *)
-    | ["push"; arg] -> (push stack arg, env)
+    | ["push"; arg] -> (push stack arg, stack_env, env)
     | "push" :: rest -> 
         let arg = String.concat " " rest in (*handle strings with spaces*)
-        (push stack arg, env)
-    | ["pop"] -> (pop stack, env)
-    | ["add"] -> (add stack env, env)
-    | ["sub"] -> (sub stack env, env)
-    | ["mult"] -> (mult stack env, env)
-    | ["div"] -> (div stack env, env)
-    | ["rem"] -> (rem stack env, env)
-    | ["sign"] -> (sign stack env, env)
-    | ["swap"] -> (swap stack, env)
-    | ["toString"] -> (to_string_stack stack, env)
-    | ["println"] -> (println stack out_file, env)
+        (push stack arg, stack_env, env)
+    | ["pop"] -> (pop stack, stack_env, env)
+    | ["add"] -> (add stack env, stack_env, env)
+    | ["sub"] -> (sub stack env, stack_env, env)
+    | ["mult"] -> (mult stack env, stack_env, env)
+    | ["div"] -> (div stack env, stack_env, env)
+    | ["rem"] -> (rem stack env, stack_env, env)
+    | ["sign"] -> (sign stack env, stack_env, env)
+    | ["swap"] -> (swap stack, stack_env, env)
+    | ["toString"] -> (to_string_stack stack, stack_env, env)
+    | ["println"] -> (println stack out_file, stack_env, env)
     (* Boolean and comparison operations *)
-    | ["cat"] -> (cat stack env, env)
-    | ["and"] -> (and_op stack env, env)
-    | ["or"] -> (or_op stack env, env)
-    | ["not"] -> (not_op stack env, env)
-    | ["equal"] -> (equal_op stack env, env)
-    | ["lessThan"] -> (less_than_op stack env, env)
+    | ["cat"] -> (cat stack env, stack_env, env)
+    | ["and"] -> (and_op stack env, stack_env, env)
+    | ["or"] -> (or_op stack env, stack_env, env)
+    | ["not"] -> (not_op stack env, stack_env, env)
+    | ["equal"] -> (equal_op stack env, stack_env, env)
+    | ["lessThan"] -> (less_than_op stack env, stack_env, env)
     (* Assignment and control flow *)
-    | ["assign"] -> assign stack env
-    | ["if"] -> if_op stack env
+    | ["assign"] -> let s,e = assign stack env in (s, stack_env, e)
+    | ["if"] -> let s,e = if_op stack env in (s, stack_env, e)
     (* Environment handling *)
-    | ["let"] -> (stack, [] :: env)
+    | ["let"] -> ([], stack :: stack_env, [] :: env)  (* push current stack onto stack_env, start new empty stack *)
     | ["end"] ->
-        (match env with
-        | [] -> Error :: stack, env
-        | frame :: rest_env -> 
-            (match stack with
-            | v :: tl -> [v], rest_env
-            | [] -> [], rest_env))
-    | _ -> (stack, env)
+        (match stack_env with
+        | outer_stack :: rest_stack_env ->
+            let top =
+              match stack with
+              | v :: _ -> v      (* take top value of inner stack *)
+              | [] -> Error       (* if inner stack empty *)
+            in
+            (top :: outer_stack, rest_stack_env, match env with _ :: rest_env -> rest_env | [] -> [] )
+        | [] -> (Error :: stack, [], env))  (* no outer stack *)
+    | _ -> (stack, stack_env, env)
+
 
 
 (*main function *)
@@ -322,21 +327,22 @@ let interpreter ((input : string), (output : string)) : unit =
   in
   let commands = read_lines [] in
 
-  (* ADDED FOR PART 2: env threaded in process *)
-  let rec process stack env commands =
+  (* ADDED FOR PART 2: stack_env threaded in process *)
+  let rec process stack stack_env env commands =
     match commands with
     | [] -> stack
     | cmd :: rest ->
       let stripped = String.trim cmd in  (*trim whitespace and newlines so it reads correctly*)
       if stripped = "quit" then stack (*return stack*)
       else
-        let s, e = interpret_command stack env stripped out_file in
-        process s e rest
+        let s, se, e = interpret_command stack stack_env env stripped out_file in
+        process s se e rest
   in
-  (*this is the empty stack that we start with and then run the commands on it*)
-  ignore(process [] [[]] commands); (* PART 2: initial global environment *)
+  (*this is the empty stack and empty stack-of-stacks that we start with*)
+  ignore(process [] [] [[]] commands); (* initial empty stack, stack_env, and global env *)
   close_in in_file;
   close_out out_file
 ;;
 
-interpreter ("input0.txt", "output0.txt");
+
+interpreter ("input7.txt", "output7.txt");
