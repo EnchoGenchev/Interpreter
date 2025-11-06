@@ -348,4 +348,4 @@ let interpreter ((input : string), (output : string)) : unit =
 ;;
 
 
-interpreter ("input.txt", "output.txt");
+interpreter ("input10.txt", "output10.txt");
