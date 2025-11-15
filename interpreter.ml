@@ -253,7 +253,7 @@ let assign stack env =
       in 
       (match resolve_v with
        | Some value -> Unit :: tl, env_add n value env (*if v was assigned then push unit to stack*)
-       | None -> Error ::  Name n :: v :: tl, env (*if not then push error and values back to stack*)
+       | None -> Error :: v :: Name n :: tl, env (*if not then push error and values back to stack*)
       )
   | v :: n :: tl ->  Error :: v :: n :: tl, env
   | [v] -> Error :: v :: [], env
@@ -262,7 +262,7 @@ let assign stack env =
 let if_op stack env =
   match stack with
   | x :: y :: z :: tl -> 
-      (match resolve x env, resolve y env, resolve z env with (*looks for values in whatever stack they may be in*)
+      (match x, y, resolve z env with (*don't need to resolve x and y since could just be returning names not stored values*)
       | vx, vy, Bool cond -> (*only works if third value is a Bool*)
          if cond then vx :: tl, env else vy :: tl, env
   (*otherwise pushes value back with error*)
