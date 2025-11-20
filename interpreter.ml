@@ -17,11 +17,7 @@ type env = (string * value) list list (*each frame is a scope*)
 (*string representation for output/println*)
 let value_to_string = function
   | Int n -> string_of_int n
-  | Float f -> (*float printed as int if nothing in decimal place*)
-      if f = float_of_int (int_of_float f) then
-        string_of_int (int_of_float f)
-      else
-        string_of_float f
+  | Float f -> string_of_float f
   | Bool true -> ":true:"
   | Bool false -> ":false:"
   | Str s -> s
@@ -365,9 +361,8 @@ let rec exec_commands initial_stack initial_stack_env initial_env commands out_f
   in
   loop initial_stack initial_stack_env initial_env commands
 
-  (*AHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*)
 
-(* interpret a single command (non-block commands). returns new stack and env and stop-flag. *)
+(*interpret a single command at a time*)
 and interpret_command (stack : value list) (stack_env : value list list) (env : env) (cmd : string) (out_file : out_channel)
     : value list * value list list * env * bool =
   if String.length cmd = 0 then (stack, stack_env, env, false)
@@ -418,41 +413,48 @@ and interpret_command (stack : value list) (stack_env : value list list) (env : 
     | ["call"] ->
         (match stack with
          | arg :: Name fname :: tl ->
-            (match env_lookup fname env with
+            (match env_lookup fname env with (*finding the name of the function*)
              | Some (Closure (param, code, closure_env, is_inout)) ->
                  let arg_value =
                    match arg with
                    | Name aname -> (match env_lookup aname env with Some v -> v | None -> Error)
-                   | Error -> Error
+                   | Error -> Error (*if the parameter doesn't match the input then error*)
                    | _ -> arg
                  in
                  if arg_value = Error then
-                   Error :: arg :: Name fname :: tl, stack_env, env, false
+                   Error :: arg :: Name fname :: tl, stack_env, env, false (*if error then push name and input and error back to the stack*)
                  else
+                   (*saving a copy of the stack and environment to keep variable bindings the same*)
                    let saved_env = env in
                    let saved_stack = tl in
                    let fn_env =
-                     match closure_env with
+                     match closure_env with (*running function in it's own environment*)
                      | [] -> [[(param, arg_value)]]
                      | _ -> env_add param arg_value closure_env
                    in
-                   let new_stack_env = (saved_stack) :: stack_env in
+                   let new_stack_env = (saved_stack) :: stack_env in (*restoring everything to how it was*)
                    let fn_stack = [] in
+
+                   (*execute the function*)
                    let (fn_final_stack, fn_stack_env_after, fn_env_after, returned_flag) =
                      exec_commands fn_stack new_stack_env fn_env code out_file
                    in
+
+                   (*restores stack that called the function*)
                    let caller_stack =
                      match fn_stack_env_after with
                      | [] -> saved_stack
                      | caller_stack :: _ -> caller_stack
                    in
+
                    let push_val =
+                    (*pushing value back to calling stack*)
                      match fn_final_stack with
                      | v :: _ -> v
                      | [] -> Error
                    in
                    let final_caller_env =
-                     if is_inout then
+                     if is_inout then (*makes sure to update caller env with modified arguments*)
                        (match arg with
                         | Name actual_name ->
                             (match env_lookup param fn_env_after with
@@ -461,68 +463,85 @@ and interpret_command (stack : value list) (stack_env : value list list) (env : 
                         | _ -> saved_env)
                      else saved_env
                    in
+                   (*returning the out value*)
                    (push_val :: caller_stack, (match fn_stack_env_after with | [] -> [] | _::rest -> rest), final_caller_env, false)
              | Some _ ->
                  Error :: arg :: Name fname :: tl, stack_env, env, false
              | None ->
                  Error :: arg :: Name fname :: tl, stack_env, env, false)
+            
+          (*if function is on the currect stack*)
          | arg :: Closure (param, code, closure_env, is_inout) :: tl ->
-             let arg_value =
+             let arg_value = (*getting input value*)
                match arg with
                | Name aname -> (match env_lookup aname env with Some v -> v | None -> Error)
                | Error -> Error
                | _ -> arg
              in
-             if arg_value = Error then
+             if arg_value = Error then (*pushing values and error back to stack*)
                Error :: arg :: (Closure (param, code, closure_env, is_inout)) :: tl, stack_env, env, false
              else
+              (*saving a copy of the stack and environment to keep variable bindings the same*)
                let saved_env = env in
                let saved_stack = tl in
                let fn_env = env_add param arg_value closure_env in
                let new_stack_env = (saved_stack) :: stack_env in
                let fn_stack = [] in
+
+               (*running the function*)
                let (fn_final_stack, fn_stack_env_after, fn_env_after, _) =
                  exec_commands fn_stack new_stack_env fn_env code out_file
                in
+
+              (*restores stack that called the function*)
                let caller_stack =
                  match fn_stack_env_after with
                  | [] -> saved_stack
                  | caller_stack :: _ -> caller_stack
                in
+
+               (*getting output*)
                let push_val =
                  match fn_final_stack with
                  | v :: _ -> v
                  | [] -> Error
                in
                let final_caller_env = saved_env in
+
+               (*pushing output to the stack*)
                (push_val :: caller_stack, (match fn_stack_env_after with | [] -> [] | _::rest -> rest), final_caller_env, false)
          | _ -> Error :: stack, stack_env, env, false)
-    | ["return"] ->
+
+    | ["return"] -> (*immediately stops function and returns to stack*)
         (stack, stack_env, env, true)
     | _ -> (stack, stack_env, env, false)
+    
 
 (*interpret a single command at top-level which may include function declarations *)
 let interpret_top_command (stack : value list) (stack_env : value list list) (env : env) (cmd : string) (rest_commands : string list) (out_file : out_channel)
     : value list * value list list * env * string list =
-  let stripped = String.trim cmd in
-  if String.length stripped = 0 then (stack, stack_env, env, rest_commands)
+  let stripped = String.trim cmd in (*trimming whitespace*)
+
+  if String.length stripped = 0 then (stack, stack_env, env, rest_commands) (*handles if command is empty*)
   else
     let words = String.split_on_char ' ' stripped in
     match words with
     | ["fun"; fname; param] ->
-        let rec collect acc rem =
+        let rec collect acc rem = (*acc for collecting and for rem for remaining lines*)
           match rem with
           | [] -> (List.rev acc, [])
           | h :: t ->
               if String.trim h = "funEnd" then (List.rev acc, t)
-              else collect (h :: acc) t
+              else collect (h :: acc) t (*continue until no more or until funEnd*)
         in
         let (body, remaining_after) = collect [] rest_commands in
         let closure_env = env in
-        let closure_value = Closure (param, body, closure_env, false) in
+        let closure_value = Closure (param, body, closure_env, false) in (*create closer since function*)
         let new_stack = Unit :: stack in
         let new_env = env_add fname closure_value env in
         (new_stack, stack_env, new_env, remaining_after)
+  
+    (*same logic but inout flag set to true*)
     | ["inOutFun"; fname; param] ->
         let rec collect acc rem =
           match rem with
@@ -538,6 +557,8 @@ let interpret_top_command (stack : value list) (stack_env : value list list) (en
         let new_env = env_add fname closure_value env in
         (new_stack, stack_env, new_env, remaining_after)
     | _ ->
+
+      (*stack, stack env, and env will be handled by regular interpret command*)
         let s, se, e, _ = interpret_command stack stack_env env stripped out_file in
         (s, se, e, rest_commands)
 
@@ -552,13 +573,14 @@ let interpreter ((input : string), (output : string)) : unit =
   in
   let commands = read_lines [] in
 
-  let rec process stack stack_env env cmds =
+  let rec process stack stack_env env cmds = 
     match cmds with
     | [] -> stack
     | cmd :: rest ->
         let stripped = String.trim cmd in
         if stripped = "quit" then stack
         else
+          (*handles highes scope in the program*)
           let updated_stack, updated_stack_env, updated_env, remaining = interpret_top_command stack stack_env env stripped rest out_file in
           process updated_stack updated_stack_env updated_env remaining
   in
