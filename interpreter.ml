@@ -115,13 +115,6 @@ let rec resolve value env =
   | Name n -> (match env_lookup n env with Some v -> v | None -> Error)
   | v -> v
 
-(*
-let numeric_to_float = function
-  | Int i -> float_of_int i
-  | Float f -> f
-  | _ -> failwith "numeric_to_float expects a numeric value"
-*)
-
 let is_int = function Int _ -> true | _ -> false
 let is_float = function Float _ -> true | _ -> false
 let is_numeric = function Int _ | Float _ -> true | _ -> false
@@ -566,7 +559,8 @@ let interpret_top_command (stack : value list) (stack_env : value list list) (en
 let interpreter ((input : string), (output : string)) : unit =
   let in_file = open_in input in
   let out_file = open_out output in
-
+  
+  (*reading in the file*)
   let rec read_lines acc =
     try read_lines (input_line in_file :: acc)
     with End_of_file -> List.rev acc
@@ -589,7 +583,6 @@ let interpreter ((input : string), (output : string)) : unit =
   close_out out_file
 ;;
 
-(* Run using your example input file paths, or change as needed *)
 interpreter ("input1.txt", "output1.txt");;
 interpreter ("input2.txt", "output2.txt");;
 interpreter ("input3.txt", "output3.txt");;
